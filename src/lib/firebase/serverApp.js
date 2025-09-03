@@ -1,30 +1,46 @@
 // enforces that this code can only be called on the server
-// https://nextjs.org/docs/app/building-your-application/rendering/composition-patterns#keeping-server-only-code-out-of-the-client-environment
 import "server-only";
 
 import { cookies } from "next/headers";
-import { initializeServerApp, initializeApp } from "firebase/app";
+import { getAuth } from "firebase-admin/auth";
+import { getApp, initializeApp, cert } from "firebase-admin/app";
+import { config } from "@/lib/firebase/config.server";
 
-import { getAuth } from "firebase/auth";
+// A function to initialize the Firebase Admin SDK once.
+// This prevents multiple initializations which can cause errors.
+function initializeFirebaseAdmin() {
+  try {
+    return getApp();
+  } catch (error) {
+    return initializeApp({
+      credential: cert(config.serviceAccount),
+      projectId: config.projectId,
+    });
+  }
+}
 
-// Returns an authenticated client SDK instance for use in Server Side Rendering
-// and Static Site Generation
-export async function getAuthenticatedAppForUser() {
-  const authIdToken = (await cookies()).get("__session")?.value;
+const firebaseAdminApp = initializeFirebaseAdmin();
+const adminAuth = getAuth(firebaseAdminApp);
 
-  // Firebase Server App is a new feature in the JS SDK that allows you to
-  // instantiate the SDK with credentials retrieved from the client & has
-  // other affordances for use in server environments.
-  const firebaseServerApp = initializeServerApp(
-    // https://github.com/firebase/firebase-js-sdk/issues/8863#issuecomment-2751401913
-    initializeApp(),
-    {
-      authIdToken,
+/**
+ * Verifies the user's session cookie and returns the authenticated user object.
+ * This is the correct way to handle server-side authentication with Firebase.
+ * @returns {Promise<{ currentUser: import('firebase-admin/auth').DecodedIdToken | null }>}
+ */
+export async function getAuthenticatedUser() {
+  try {
+    const sessionCookie = cookies().get("__session")?.value;
+
+    if (!sessionCookie) {
+      return { currentUser: null };
     }
-  );
 
-  const auth = getAuth(firebaseServerApp);
-  await auth.authStateReady();
-
-  return { firebaseServerApp, currentUser: auth.currentUser };
+    const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
+    return { currentUser: decodedClaims };
+  } catch (error) {
+    console.error("Error verifying session cookie:", error);
+    // Token is invalid, remove cookie to force re-authentication
+    cookies().delete("__session");
+    return { currentUser: null };
+  }
 }
