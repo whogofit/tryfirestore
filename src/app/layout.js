@@ -17,7 +17,7 @@ export default async function RootLayout({ children }) {
     <html lang="en">
       <body>
         <Header initialUser={currentUser?.toJSON()} />
-
+        
         <main>{children}</main>
       </body>
     </html>

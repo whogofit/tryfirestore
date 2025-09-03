@@ -1,5 +1,6 @@
 "use client";
-import React, { useEffect } from "react";
+
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   signInWithGoogle,
@@ -9,24 +10,32 @@ import {
 import { addFakeRestaurantsAndReviews } from "@/src/lib/firebase/firestore.js";
 import { setCookie, deleteCookie } from "cookies-next";
 
+// This is a custom hook. It should be used *inside* a component.
 function useUserSession(initialUser) {
-  useEffect(() => {
-    return onIdTokenChanged(async (user) => {
-      if (user) {
-        const idToken = await user.getIdToken();
-        await setCookie("__session", idToken);
-      } else {
-        await deleteCookie("__session");
-      }
-      if (initialUser?.uid === user?.uid) {
-        return;
-      }
-      window.location.reload();
-    });
-  }, [initialUser]);
+  const [user, setUser] = useState(initialUser);
 
-  return initialUser;
+  useEffect(() => {
+    // This is the Firebase authentication listener
+    const unsubscribe = onIdTokenChanged(async (authUser) => {
+      if (authUser) {
+        const idToken = await authUser.getIdToken();
+        setCookie("__session", idToken);
+      } else {
+        deleteCookie("__session");
+      }
+      setUser(authUser); // Update the user state
+    });
+
+    // Cleanup the subscription on unmount
+    return () => unsubscribe();
+  }, []); // Empty dependency array means this runs only once
+
+  return user;
 }
+
+// This is the main component
+export function Header({ initialUser }) {
+  const user = useUserSession(initialUser);
 
   const handleSignOut = (event) => {
     event.preventDefault();
@@ -57,16 +66,14 @@ function useUserSession(initialUser) {
             </p>
 
             <div className="menu">
-              ...
+              {/* ... */}
               <ul>
                 <li>{user.displayName}</li>
-
                 <li>
                   <a href="#" onClick={addFakeRestaurantsAndReviews}>
                     Add sample restaurants
                   </a>
                 </li>
-
                 <li>
                   <a href="#" onClick={handleSignOut}>
                     Sign Out
@@ -87,3 +94,9 @@ function useUserSession(initialUser) {
     </header>
   );
 }
+
+// Note: The `Header` component above would be used in a parent component like this:
+// import { Header } from './Header';
+// export default function Page({ initialUser }) {
+//   return <Header initialUser={initialUser} />;
+// }
